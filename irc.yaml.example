@@ -1,5 +1,6 @@
 ---
-nickname: "stackstorm-bot"
 server: "irc.freenode.net:6667"
+nickname: "stackstorm-bot"
+password: "123-a-password"
 channels:
-- "#mychannel1"
+  - "#mychannel1"

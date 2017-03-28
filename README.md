@@ -7,9 +7,10 @@ Pack which allows integration with Internet Relay Chat (IRC).
 Copy the example configuration in [irc.yaml.example](./irc.yaml.example)
 to `/opt/stackstorm/configs/irc.yaml` and edit as required.
 
-* ``nickname`` - Bot nickname.
 * ``server`` - Server to connect to in the `<hostname:port>` format. For
   example `irc.freenode.net:6667`.
+* ``nickname`` - Bot nickname.
+* ``password`` - Optional password for a nickname.
 * ``channels`` - A list of channels to join and monitor.
 
 You can also use dynamic values from the datastore. See the
