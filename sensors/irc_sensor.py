@@ -4,6 +4,8 @@ import random
 
 import eventlet
 from irc.bot import SingleServerIRCBot
+from ib3.auth import SASL
+from ib3.mixins import RejoinOnKick
 
 from st2reactor.sensor.base import Sensor
 
@@ -15,15 +17,11 @@ eventlet.monkey_patch(
     time=True)
 
 
-class StackStormSensorBot(SingleServerIRCBot):
-    def __init__(self, server_host, server_port, nickname, channels, handlers, logger):
-        server_list = [(server_host, server_port)]
-        super(StackStormSensorBot, self).__init__(server_list=server_list, nickname=nickname,
-                                                  realname=nickname)
-        self._channels = channels
-        self._handlers = handlers
-        self._logger = logger
-
+# pylint: disable=no-member
+class StackStormSensorBaseBot(RejoinOnKick, SingleServerIRCBot):
+    """
+    Base IRC mixin with common methods to dispatch StackStorm triggers based on IRC events.
+    """
     def on_welcome(self, connection, event):
         self._logger.debug('Connected to the server')
 
@@ -54,6 +52,54 @@ class StackStormSensorBot(SingleServerIRCBot):
         event.timestamp = int(time.time())
         handler = self._handlers.get('part', lambda connection, event: connection)
         handler(connection=connection, event=event)
+# pylint: enable=no-member
+
+
+class StackStormSensorSimpleBot(StackStormSensorBaseBot):
+    """
+    Simple IRC Bot with no authentication.
+    """
+    def __init__(self, channels, handlers, logger, *args, **kwargs):
+        super(StackStormSensorSimpleBot, self).__init__(*args, **kwargs)
+
+        self._channels = channels
+        self._handlers = handlers
+        self._logger = logger
+
+    def on_error(self, connection, event):
+        """
+        Parse server error message and terminate the bot if SASL authentication is requested.
+
+        This is obvious for AWS-hosted servers, which IPs are blacklisted by IRC.freenode
+        and registration + SASL auth is the only way to connect.
+        """
+        if 'SASL access only' in event.target:
+            self._logger.error('This server requires SASL authentication only. '
+                               'Please register and specify both nickname:password in config file.')
+            self.die()
+
+
+class StackStormSensorSaslBot(SASL, StackStormSensorBaseBot):
+    """
+    IRC bot using SASL authentication when the password is provided.
+    http://ircv3.net/specs/extensions/sasl-3.1.html
+    """
+    def __init__(self, channels, handlers, logger, *args, **kwargs):
+        super(StackStormSensorSaslBot, self).__init__(*args, **kwargs)
+        self.connection.add_global_handler('904', self.on_sasl_failed)
+
+        self._channels = channels
+        self._handlers = handlers
+        self._logger = logger
+
+    def on_sasl_failed(self, connection, event):
+        """
+        Handle 904 ERR_SASLFAIL responses.
+        Terminate the bot if invalid credentials were provided.
+        """
+        self._logger.error('SASL authentication failed! Please use correct username:password. '
+                           'Additionally, make sure you registered your nickname at IRC server.')
+        self.die()
 
 
 class IRCSensor(Sensor):
@@ -66,6 +112,7 @@ class IRCSensor(Sensor):
         self._server_host = split[0]
         self._server_port = int(split[1])
         self._nickname = self._config['nickname']
+        self._password = self._config.get('password')
         self._channels = self._config['channels']
 
     def setup(self):
@@ -75,11 +122,18 @@ class IRCSensor(Sensor):
             'join': self._handle_join,
             'part': self._handle_part
         }
-        self._bot = StackStormSensorBot(server_host=self._server_host,
-                                        server_port=self._server_port,
-                                        nickname=self._nickname, channels=self._channels,
-                                        handlers=handlers,
-                                        logger=self._logger)
+
+        if self._password:
+            self._bot = StackStormSensorSaslBot(
+                server_list=[(self._server_host, self._server_port)],
+                nickname=self._nickname, realname=self._nickname,
+                ident_password=self._password, channels=self._channels,
+                handlers=handlers, logger=self._logger)
+        else:
+            self._bot = StackStormSensorSimpleBot(
+                server_list=[(self._server_host, self._server_port)],
+                nickname=self._nickname, realname=self._nickname,
+                channels=self._channels, handlers=handlers, logger=self._logger)
 
     def run(self):
         self._bot.start()  # pylint: disable=no-member
