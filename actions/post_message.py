@@ -4,7 +4,7 @@ import random
 import eventlet
 from irc.bot import SingleServerIRCBot
 
-from st2actions.runners.pythonrunner import Action
+from st2common.runners.base_action import Action
 
 eventlet.monkey_patch(
     os=True,
