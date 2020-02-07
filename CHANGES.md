@@ -1,5 +1,9 @@
 # Change Log
 
+# 0.3.2
+
+- Add explicit support for Python 2 and 3
+
 # 0.3.0
 - Introduce new optional `password` using SASL authentication.
 
